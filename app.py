@@ -329,8 +329,8 @@ if model_type == "Hill (Robyn)":
     _fitted_hill = st.session_state.get("_fitted_from_upload")
     _has_hill_upload = _fitted_hill is not None
 
-    # Source selector for Hill shape params
-    _hill_shape_options = ["Manual"]
+    # Source selector for Hill params
+    _hill_shape_options = ["Derive from a campaign", "Manual"]
     if _has_hill_upload:
         _hill_shape_options.insert(0, "From uploaded data")
 
@@ -338,22 +338,95 @@ if model_type == "Hill (Robyn)":
         "Load parameters from",
         _hill_shape_options,
         index=0,
-        help="Load alpha, gamma, E, and max spend from fitted data, or enter manually.",
+        help="Load all Hill params from fitted data, derive from a single campaign, or enter manually.",
         key="hill_source",
     )
 
-    # --- Hill shape params (alpha, gamma, max spend) ---
+    # --- Hill params: From uploaded data ---
     if selected_source == "From uploaded data" and _has_hill_upload:
         hill_alpha = round(_fitted_hill["hill_alpha"], 2)
         hill_gamma = round(_fitted_hill["hill_gamma"], 2)
         hill_max_spend = round(_fitted_hill["hill_max_spend"])
+        _hem_raw = _fitted_hill["hill_e"]
+        _hem_resp = _fitted_hill.get("resp_type", "Revenue ($)")
+        if _hem_resp == "Revenue ($)" and price > 0:
+            effectiveness = max(round(_hem_raw / price, 2), 0.1)
+            _e_note = f"{_hem_raw:,.0f} / ${price:,.2f} = **{effectiveness:,.2f}** (revenue → units)"
+        else:
+            effectiveness = max(round(_hem_raw, 1), 1.0)
+            _e_note = f"**{effectiveness:,.0f}**"
         st.sidebar.success(
-            f"**Hill shape from uploaded data:**\n\n"
+            f"**All Hill params from uploaded data:**\n\n"
             f"- Alpha (shape): **{hill_alpha}**\n"
             f"- Gamma (inflection): **{hill_gamma}**\n"
+            f"- E (effectiveness): {_e_note}\n"
             f"- Max spend: **${hill_max_spend:,.0f}**\n"
             f"- R²: {_fitted_hill.get('best_r2', 0):.4f}"
         )
+
+    # --- Hill params: Derive from a campaign ---
+    elif selected_source == "Derive from a campaign":
+        st.sidebar.caption(
+            "Answer a few questions about one campaign to derive all Hill parameters."
+        )
+
+        st.sidebar.markdown("**Your campaign:**")
+        _dc_spend = st.sidebar.number_input(
+            "Ad spend in that campaign ($)", min_value=1.0, value=10000.0, step=100.0, key="hill_dc_spend"
+        )
+        _dc_extra = st.sidebar.number_input(
+            "Extra units sold from ads", min_value=1.0, value=400.0, step=10.0, key="hill_dc_extra"
+        )
+        hill_max_spend = st.sidebar.number_input(
+            "Max realistic ad spend ($)", min_value=100, value=50000, step=1000,
+            help="The highest you'd ever spend on this channel.",
+            key="hill_max_spend",
+        )
+
+        st.sidebar.markdown("**Curve shape:**")
+        _dc_shape = st.sidebar.radio(
+            "How do ads behave at low spend?",
+            ["Diminishing returns from the start (C-curve)", "Slow start, then accelerates (S-curve)"],
+            key="hill_dc_shape",
+            help="C-curve: every dollar helps but with decreasing returns (like sqrt). S-curve: need minimum spend before ads kick in.",
+        )
+        if _dc_shape.startswith("Diminishing"):
+            hill_alpha = st.sidebar.number_input("Alpha", min_value=0.1, max_value=1.0, value=0.5, step=0.1, key="hill_alpha",
+                                                  help="< 1 for C-curve. Lower = more aggressive diminishing returns.")
+        else:
+            hill_alpha = st.sidebar.number_input("Alpha", min_value=1.0, max_value=5.0, value=2.0, step=0.1, key="hill_alpha",
+                                                  help="> 1 for S-curve. Higher = sharper threshold effect.")
+
+        st.sidebar.markdown("**Saturation estimate:**")
+        _dc_sat_pct = st.sidebar.slider(
+            "At that spend, what % of maximum ad effect have you captured?",
+            min_value=10, max_value=90, value=50, step=5, key="hill_dc_sat_pct",
+            help="50% = you're at the midpoint. 80% = nearly saturated. 20% = lots of room to grow.",
+        )
+
+        # Derive gamma and E from the inputs
+        _dc_sat_frac = _dc_sat_pct / 100.0
+        # From: sat(spend) = spend^α / (spend^α + inflexion^α) = sat_frac
+        # Solve: inflexion = spend × ((1 - sat_frac) / sat_frac) ^ (1/α)
+        _dc_inflexion = _dc_spend * ((1.0 - _dc_sat_frac) / _dc_sat_frac) ** (1.0 / hill_alpha)
+        hill_gamma = min(max(round(_dc_inflexion / hill_max_spend, 4), 0.01), 1.0)
+
+        # E = extra_units / sat_frac
+        effectiveness = max(round(_dc_extra / _dc_sat_frac, 1), 0.1)
+
+        # Verify by computing actual saturation at the campaign spend
+        _dc_infl_actual = hill_gamma * hill_max_spend
+        _dc_sat_check = hill_saturation(np.array([_dc_spend]), hill_alpha, _dc_infl_actual)[0]
+
+        st.sidebar.success(
+            f"**Derived Hill parameters:**\n\n"
+            f"- Alpha: **{hill_alpha}**\n"
+            f"- Gamma: **{hill_gamma}** (inflection at **${_dc_infl_actual:,.0f}**)\n"
+            f"- E: **{effectiveness:,.1f}** (max extra units from ads)\n"
+            f"- At ${_dc_spend:,.0f}: **{_dc_sat_check:.0%}** saturated → **{effectiveness * _dc_sat_check:,.0f}** extra units"
+        )
+
+    # --- Hill params: Full manual entry ---
     else:
         st.sidebar.caption(
             "From Meta's Robyn MMM framework. "
@@ -371,55 +444,54 @@ if model_type == "Hill (Robyn)":
             key="hill_max_spend",
         )
 
-    # --- Hill E source (always shown, same interface as sqrt/log) ---
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Ad Effectiveness (E)")
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Ad Effectiveness (E)")
 
-    _hill_e_options = ["Calculate from a campaign", "Manual"]
-    if _has_hill_upload:
-        _hill_e_options.insert(0, "From uploaded data")
+        _hill_e_options = ["Calculate from a campaign", "Manual"]
+        if _has_hill_upload:
+            _hill_e_options.insert(0, "From uploaded data")
 
-    _hill_e_source = st.sidebar.radio(
-        "E source",
-        _hill_e_options,
-        horizontal=True,
-        key="hill_e_source",
-    )
-
-    if _hill_e_source == "From uploaded data" and _has_hill_upload:
-        _hem_raw = _fitted_hill["hill_e"]
-        _hem_resp = _fitted_hill.get("resp_type", "Revenue ($)")
-        if _hem_resp == "Revenue ($)" and price > 0:
-            effectiveness = max(round(_hem_raw / price, 2), 0.1)
-            st.sidebar.success(f"**E = {_hem_raw:,.0f} / ${price:,.2f} = {effectiveness:,.2f}** (revenue → units)")
-        else:
-            effectiveness = max(round(_hem_raw, 1), 1.0)
-            st.sidebar.success(f"**E = {effectiveness:,.0f}** (from uploaded data Hill fit)")
-    elif _hill_e_source == "Calculate from a campaign":
-        st.sidebar.caption(
-            "Enter a past campaign's numbers to calculate E. "
-            "E = extra units sold / Hill(spend)."
+        _hill_e_source = st.sidebar.radio(
+            "E source",
+            _hill_e_options,
+            horizontal=True,
+            key="hill_e_source",
         )
-        _hill_calc_spend = st.sidebar.number_input("Ad spend in that campaign ($)", min_value=1.0, value=10000.0, step=100.0, key="hill_calc_spend")
-        _hill_calc_extra = st.sidebar.number_input("Extra units sold from ads", min_value=1.0, value=400.0, step=10.0, key="hill_calc_extra")
-        infl = hill_gamma * hill_max_spend
-        hill_val = hill_saturation(np.array([_hill_calc_spend]), hill_alpha, infl)[0]
-        if hill_val > 0.001:
-            calc_e = _hill_calc_extra / hill_val
-            effectiveness = max(round(calc_e, 1), 0.1)
-            st.sidebar.markdown(
-                f"**E = {_hill_calc_extra:,.0f} / Hill({_hill_calc_spend:,.0f}) = {_hill_calc_extra:,.0f} / {hill_val:.4f} = {calc_e:,.1f}**"
+
+        if _hill_e_source == "From uploaded data" and _has_hill_upload:
+            _hem_raw = _fitted_hill["hill_e"]
+            _hem_resp = _fitted_hill.get("resp_type", "Revenue ($)")
+            if _hem_resp == "Revenue ($)" and price > 0:
+                effectiveness = max(round(_hem_raw / price, 2), 0.1)
+                st.sidebar.success(f"**E = {_hem_raw:,.0f} / ${price:,.2f} = {effectiveness:,.2f}** (revenue → units)")
+            else:
+                effectiveness = max(round(_hem_raw, 1), 1.0)
+                st.sidebar.success(f"**E = {effectiveness:,.0f}** (from uploaded data Hill fit)")
+        elif _hill_e_source == "Calculate from a campaign":
+            st.sidebar.caption(
+                "Enter a past campaign's numbers to calculate E. "
+                "E = extra units sold / Hill(spend)."
             )
-            st.sidebar.info(f"Using calculated E = {effectiveness}")
+            _hill_calc_spend = st.sidebar.number_input("Ad spend in that campaign ($)", min_value=1.0, value=10000.0, step=100.0, key="hill_calc_spend")
+            _hill_calc_extra = st.sidebar.number_input("Extra units sold from ads", min_value=1.0, value=400.0, step=10.0, key="hill_calc_extra")
+            infl = hill_gamma * hill_max_spend
+            hill_val = hill_saturation(np.array([_hill_calc_spend]), hill_alpha, infl)[0]
+            if hill_val > 0.001:
+                calc_e = _hill_calc_extra / hill_val
+                effectiveness = max(round(calc_e, 1), 0.1)
+                st.sidebar.markdown(
+                    f"**E = {_hill_calc_extra:,.0f} / Hill({_hill_calc_spend:,.0f}) = {_hill_calc_extra:,.0f} / {hill_val:.4f} = {calc_e:,.1f}**"
+                )
+                st.sidebar.info(f"Using calculated E = {effectiveness}")
+            else:
+                st.sidebar.warning(f"Hill saturation near zero at ${_hill_calc_spend:,.0f}. Try higher spend or adjust gamma/max spend.")
+                effectiveness = 500.0
         else:
-            st.sidebar.warning(f"Hill saturation near zero at ${_hill_calc_spend:,.0f}. Try higher spend or adjust gamma/max spend.")
-            effectiveness = 500.0
-    else:
-        effectiveness = st.sidebar.number_input(
-            "E (max incremental units from ads)", min_value=1.0, value=500.0, step=10.0,
-            help="The maximum extra units ads could ever generate above base demand.",
-            key="hill_effectiveness",
-        )
+            effectiveness = st.sidebar.number_input(
+                "E (max incremental units from ads)", min_value=1.0, value=500.0, step=10.0,
+                help="The maximum extra units ads could ever generate above base demand.",
+                key="hill_effectiveness",
+            )
 
     infl_point = hill_gamma * hill_max_spend
     st.sidebar.info(
