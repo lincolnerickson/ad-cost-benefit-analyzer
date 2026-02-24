@@ -316,7 +316,9 @@ st.sidebar.header("Parameters")
 price = st.sidebar.number_input("Price per Unit ($)", min_value=0.0, value=50.0, step=0.5, key="price")
 cost = st.sidebar.number_input("Cost per Unit ($)", min_value=0.0, value=20.0, step=0.5, key="cost")
 current_spend = st.sidebar.number_input("Current Ad Spend ($)", min_value=0, value=5000, step=100, key="current_spend")
-base_demand = st.sidebar.number_input("Base Demand (units)", min_value=0, value=100, step=1, key="base_demand")
+with st.sidebar.expander("Base Demand (advanced)"):
+    st.caption("Units you'd sell with zero ad spend. Shifts the profit curve up/down but **does not change optimal ad spend**.")
+    base_demand = st.number_input("Base Demand (units)", min_value=0, value=100, step=1, key="base_demand")
 model_type = st.sidebar.radio("Demand Model", ["sqrt", "log", "Hill (Robyn)"], horizontal=True, key="model_type")
 
 # --- Hill Parameters (only shown when Hill model selected) ---
