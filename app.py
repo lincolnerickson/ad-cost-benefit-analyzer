@@ -7,6 +7,30 @@ import os
 import json
 
 st.set_page_config(page_title="Advertising Cost-Benefit Analyzer", layout="wide")
+
+# --- Password Protection ---
+def _check_password():
+    """Returns True if the user has entered the correct password."""
+    # Skip auth if no password is configured (local development)
+    if "password" not in st.secrets:
+        return True
+
+    if st.session_state.get("_authenticated"):
+        return True
+
+    st.title("Advertising Cost-Benefit Analyzer")
+    pwd = st.text_input("Enter password to access the app", type="password", key="_login_pwd")
+    if pwd:
+        if pwd == st.secrets["password"]:
+            st.session_state["_authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    return False
+
+if not _check_password():
+    st.stop()
+
 st.title("Advertising Cost-Benefit Analyzer")
 
 # --- Persist parameters across browser refreshes ---
