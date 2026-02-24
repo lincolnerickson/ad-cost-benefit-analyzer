@@ -1,21 +1,44 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import numpy as np
 import plotly.graph_objects as go
 from scipy.optimize import curve_fit, minimize_scalar
 import pandas as pd
 import os
 import json
+import hashlib
 
 st.set_page_config(page_title="Advertising Cost-Benefit Analyzer", layout="wide")
 
-# --- Password Protection ---
+# --- Password Protection (with cookie persistence) ---
+_AUTH_COOKIE_NAME = "adcba_auth"
+_AUTH_COOKIE_DAYS = 30
+
+def _make_auth_token(password: str) -> str:
+    return hashlib.sha256(f"adcba:{password}".encode()).hexdigest()[:32]
+
+def _set_auth_cookie(token: str):
+    components.html(
+        f"""<script>
+        document.cookie = "{_AUTH_COOKIE_NAME}={token}; path=/; max-age={_AUTH_COOKIE_DAYS * 86400}; SameSite=Strict";
+        </script>""",
+        height=0,
+    )
+
 def _check_password():
     """Returns True if the user has entered the correct password."""
-    # Skip auth if no password is configured (local development)
     if "password" not in st.secrets:
         return True
 
     if st.session_state.get("_authenticated"):
+        return True
+
+    expected_token = _make_auth_token(st.secrets["password"])
+
+    # Check for auth cookie
+    cookies = getattr(st.context, "cookies", {})
+    if cookies.get(_AUTH_COOKIE_NAME) == expected_token:
+        st.session_state["_authenticated"] = True
         return True
 
     st.title("Advertising Cost-Benefit Analyzer")
@@ -23,6 +46,7 @@ def _check_password():
     if pwd:
         if pwd == st.secrets["password"]:
             st.session_state["_authenticated"] = True
+            _set_auth_cookie(expected_token)
             st.rerun()
         else:
             st.error("Incorrect password.")
