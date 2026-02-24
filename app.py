@@ -777,7 +777,7 @@ _headroom = optimal_spend - (diminishing_threshold or 0)
 col12.metric(
     "Efficient Headroom",
     f"${_headroom:,.0f}" if diminishing_threshold is not None else "N/A",
-    help="How much more you can spend past the DR threshold before hitting optimal",
+    help="The spend range between the DR threshold (where each $1 returns less than $1 in revenue) and optimal spend (where profit is maximized). Spending in this zone still adds profit, just at a declining rate.",
 )
 
 # --- Ad Effectiveness (E) Explainer ---
