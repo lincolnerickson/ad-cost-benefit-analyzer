@@ -899,19 +899,27 @@ upload_df = None
 
 if _chan_choice == "(Upload new channel)":
     _new_name = st.text_input("Channel name (e.g. Facebook, Google, TV)", key="_new_chan_name")
-    _new_path = st.text_input("File path (CSV or Excel)", key="_new_chan_path",
-                               help="Full path to your data file, e.g. C:/Users/you/data/facebook.csv")
-    if _new_path.strip() and _new_name.strip():
-        _clean_name = _new_name.strip()
-        _clean_path = _new_path.strip()
-        if os.path.exists(_clean_path):
+
+    _upload_tab, _path_tab = st.tabs(["Upload file", "Local file path"])
+
+    with _upload_tab:
+        _uploaded_file = st.file_uploader(
+            "Upload CSV or Excel file",
+            type=["csv", "xlsx", "xls"],
+            key="_new_chan_upload",
+        )
+        if _uploaded_file is not None and _new_name.strip():
+            _clean_name = _new_name.strip()
             try:
-                # Verify file is readable
-                if _clean_path.endswith((".xlsx", ".xls")):
-                    pd.read_excel(_clean_path, nrows=1)
+                if _uploaded_file.name.endswith((".xlsx", ".xls")):
+                    _test_df = pd.read_excel(_uploaded_file)
                 else:
-                    pd.read_csv(_clean_path, nrows=1)
-                _save_channel_settings(_clean_name, {"source_path": _clean_path})
+                    _test_df = pd.read_csv(_uploaded_file)
+                # Save a copy to channels/ so it persists
+                os.makedirs(_CHANNELS_DIR, exist_ok=True)
+                _saved_csv = os.path.join(_CHANNELS_DIR, f"{_clean_name}.csv")
+                _test_df.to_csv(_saved_csv, index=False)
+                _save_channel_settings(_clean_name, {"source_path": _saved_csv})
                 st.session_state["selected_channel"] = _clean_name
                 if "_fitted_from_upload" in st.session_state:
                     del st.session_state["_fitted_from_upload"]
@@ -920,10 +928,35 @@ if _chan_choice == "(Upload new channel)":
                 st.rerun()
             except Exception as e:
                 st.error(f"Could not read file: {e}")
-        elif _clean_path:
-            st.warning(f"File not found: {_clean_path}")
-    elif _new_path.strip() and not _new_name.strip():
-        st.warning("Please enter a channel name.")
+        elif _uploaded_file is not None and not _new_name.strip():
+            st.warning("Please enter a channel name above.")
+
+    with _path_tab:
+        st.caption("For local use — enter the full path to a file on your computer.")
+        _new_path = st.text_input("File path (CSV or Excel)", key="_new_chan_path",
+                                   help="Full path to your data file, e.g. C:/Users/you/data/facebook.csv")
+        if _new_path.strip() and _new_name.strip():
+            _clean_name = _new_name.strip()
+            _clean_path = _new_path.strip()
+            if os.path.exists(_clean_path):
+                try:
+                    if _clean_path.endswith((".xlsx", ".xls")):
+                        pd.read_excel(_clean_path, nrows=1)
+                    else:
+                        pd.read_csv(_clean_path, nrows=1)
+                    _save_channel_settings(_clean_name, {"source_path": _clean_path})
+                    st.session_state["selected_channel"] = _clean_name
+                    if "_fitted_from_upload" in st.session_state:
+                        del st.session_state["_fitted_from_upload"]
+                    for _k in ["upload_spend_col", "upload_response_col", "upload_spend_mult", "upload_resp_mult", "upload_resp_type"]:
+                        st.session_state.pop(_k, None)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not read file: {e}")
+            elif _clean_path:
+                st.warning(f"File not found: {_clean_path}")
+        elif _new_path.strip() and not _new_name.strip():
+            st.warning("Please enter a channel name above.")
 else:
     # Load existing channel
     upload_df = _load_channel(_chan_choice)
@@ -938,20 +971,43 @@ else:
             if _sk in _ch_saved_settings and _wk not in st.session_state:
                 st.session_state[_wk] = _ch_saved_settings[_sk]
 
-        # Show source path
+        # Show source info and channel actions
         _ch_src = _ch_saved_settings.get("source_path", "unknown")
-        st.caption(f"Source: `{_ch_src}`")
+        _is_local_path = _ch_src != "unknown" and not _ch_src.startswith(_CHANNELS_DIR)
+        if _is_local_path:
+            st.caption(f"Source: `{_ch_src}`")
 
-        # Channel actions
-        _btn_cols = st.columns(2)
+        _btn_cols = st.columns(3)
         with _btn_cols[0]:
-            if st.button("Reload from disk", key="_reload_chan", help="Re-read the source file to pick up changes"):
-                if "_fitted_from_upload" in st.session_state:
-                    del st.session_state["_fitted_from_upload"]
-                st.rerun()
+            if _is_local_path:
+                if st.button("Reload from disk", key="_reload_chan", help="Re-read the source file to pick up changes"):
+                    if "_fitted_from_upload" in st.session_state:
+                        del st.session_state["_fitted_from_upload"]
+                    st.rerun()
         with _btn_cols[1]:
+            _replace_file = st.file_uploader("Replace data", type=["csv", "xlsx", "xls"], key="_replace_chan_file", label_visibility="collapsed")
+            if _replace_file is not None:
+                try:
+                    if _replace_file.name.endswith((".xlsx", ".xls")):
+                        _repl_df = pd.read_excel(_replace_file)
+                    else:
+                        _repl_df = pd.read_csv(_replace_file)
+                    os.makedirs(_CHANNELS_DIR, exist_ok=True)
+                    _saved_csv = os.path.join(_CHANNELS_DIR, f"{_chan_choice}.csv")
+                    _repl_df.to_csv(_saved_csv, index=False)
+                    _save_channel_settings(_chan_choice, {"source_path": _saved_csv})
+                    if "_fitted_from_upload" in st.session_state:
+                        del st.session_state["_fitted_from_upload"]
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not read file: {e}")
+        with _btn_cols[2]:
             if st.button("Delete channel", key="_delete_chan"):
                 _delete_channel(_chan_choice)
+                # Also remove saved CSV copy if it exists
+                _csv_copy = os.path.join(_CHANNELS_DIR, f"{_chan_choice}.csv")
+                if os.path.exists(_csv_copy):
+                    os.remove(_csv_copy)
                 st.session_state["selected_channel"] = "(Upload new channel)"
                 if "_fitted_from_upload" in st.session_state:
                     del st.session_state["_fitted_from_upload"]
