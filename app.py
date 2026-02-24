@@ -683,12 +683,59 @@ col12.metric(
     help="How much more you can spend past the DR threshold before hitting optimal",
 )
 
+# --- Ad Effectiveness (E) Explainer ---
+with st.expander("What is Ad Effectiveness (E)?"):
+    _e_current_units = float(units_sold(current_spend)) - base_demand if current_spend > 0 else 0
+    _e_current_rev = _e_current_units * price
+
+    st.markdown(f"""
+**E is the single number that captures how well your ads convert spend into sales.**
+
+It connects your ad spend to the extra units (or revenue) your ads generate, using the selected demand model.
+The higher E is, the more effective your advertising.
+
+---
+
+**How E works in each model:**
+
+| Model | Formula | What E means |
+|-------|---------|-------------|
+| **sqrt** | Extra units = E × √(spend) | Each √dollar of spend produces E extra units |
+| **log** | Extra units = E × ln(1 + spend) | Each log-dollar of spend produces E extra units |
+| **Hill** | Extra units = E × saturation(spend) | E is the *maximum* extra units ads could ever produce |
+
+---
+
+**Your current E = {effectiveness:,.2f}** ({model_type} model)
+""")
+
+    if current_spend > 0:
+        st.markdown(f"""
+**Concrete example with your numbers:**
+- At your current spend of **${current_spend:,.0f}**, ads generate **{_e_current_units:,.0f} extra units** (${_e_current_rev:,.0f} revenue)
+- Without ads (spend = $0), you'd sell just the base demand of **{base_demand:,.0f} units**
+- The difference — those {_e_current_units:,.0f} extra units — is what E produces via the {model_type} curve
+""")
+
+    st.markdown(f"""
+---
+
+**Where does E come from?**
+- **From uploaded data** — fitted automatically by finding the curve that best matches your spend vs sales data
+- **Calculate from a campaign** — enter a past campaign's spend and results, and E is back-calculated
+- **Manual** — enter E directly if you know it
+
+**Key insight:** E does *not* change with spend. It's a fixed property of how effective your advertising channel is.
+What changes is the *diminishing returns* — the {model_type} curve means each additional dollar of spend produces
+less and less additional revenue. E just scales the whole curve up or down.
+
+**Higher E** → ads work better → higher optimal spend, more profit from ads
+**Lower E** → ads are less effective → lower optimal spend, less reason to advertise
+""")
+
 # --- Chart Data ---
 a_range = np.linspace(0, chart_max, 500)
 profit_vals = profit(a_range)
-revenue_vals = revenue(a_range)
-cost_vals = total_cost(a_range)
-units_vals = units_sold(a_range)
 
 # --- Chart 1: Profit vs Ad Spend (full width) ---
 st.subheader("Profit vs Ad Spend")
@@ -783,55 +830,6 @@ if _caption_parts:
 
 st.plotly_chart(fig1, use_container_width=True)
 
-# --- Charts 2 & 3 side by side ---
-chart_left, chart_right = st.columns(2)
-
-with chart_left:
-    st.subheader("Revenue / Cost / Profit Breakdown")
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=a_range, y=revenue_vals, mode="lines", name="Revenue", line=dict(color="steelblue")))
-    fig2.add_trace(go.Scatter(x=a_range, y=cost_vals, mode="lines", name="Total Cost", line=dict(color="tomato")))
-    fig2.add_trace(
-        go.Scatter(x=a_range, y=profit_vals, mode="lines", name="Profit", line=dict(color="green", dash="dash"))
-    )
-    profitable_mask = profit_vals >= 0
-    if np.any(profitable_mask):
-        fig2.add_trace(
-            go.Scatter(
-                x=np.concatenate([a_range[profitable_mask], a_range[profitable_mask][::-1]]),
-                y=np.concatenate([revenue_vals[profitable_mask], cost_vals[profitable_mask][::-1]]),
-                fill="toself", fillcolor="rgba(0,200,0,0.1)",
-                line=dict(width=0), name="Profit Region", showlegend=True,
-            )
-        )
-    fig2.update_layout(
-        xaxis_title="Ad Spend ($)", yaxis_title="Dollars ($)",
-        height=400, margin=dict(t=30),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    )
-    st.plotly_chart(fig2, use_container_width=True)
-
-with chart_right:
-    st.subheader("Units Sold vs Ad Spend")
-    fig3 = go.Figure()
-    fig3.add_trace(
-        go.Scatter(x=a_range, y=units_vals, mode="lines", name="Units Sold (model)", line=dict(color="darkorange"))
-    )
-    if a_range[-1] > 0:
-        linear_units = base_demand + (units_vals[-1] - base_demand) * (a_range / a_range[-1])
-    else:
-        linear_units = np.full_like(a_range, base_demand)
-    fig3.add_trace(
-        go.Scatter(
-            x=a_range, y=linear_units, mode="lines", name="Linear (comparison)", line=dict(color="gray", dash="dot")
-        )
-    )
-    fig3.update_layout(
-        xaxis_title="Ad Spend ($)", yaxis_title="Units Sold",
-        height=400, margin=dict(t=30),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    )
-    st.plotly_chart(fig3, use_container_width=True)
 
 # --- Summary Table ---
 st.subheader("Current vs Optimal Comparison")
