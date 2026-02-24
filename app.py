@@ -36,7 +36,7 @@ st.title("Advertising Cost-Benefit Analyzer")
 # --- Persist parameters across browser refreshes ---
 _SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".saved_params.json")
 _PARAM_KEYS = [
-    "price", "cost", "fixed_costs", "current_spend", "base_demand", "model_type",
+    "price", "cost", "current_spend", "base_demand", "model_type",
     "hill_source", "hill_alpha", "hill_gamma", "hill_max_spend", "hill_effectiveness",
     "use_calculator", "calc_spend", "calc_extra_sales", "effectiveness",
 ]
@@ -315,7 +315,6 @@ st.sidebar.header("Parameters")
 
 price = st.sidebar.number_input("Price per Unit ($)", min_value=0.0, value=50.0, step=0.5, key="price")
 cost = st.sidebar.number_input("Cost per Unit ($)", min_value=0.0, value=20.0, step=0.5, key="cost")
-fixed_costs = st.sidebar.number_input("Fixed Costs ($)", min_value=0, value=5000, step=100, key="fixed_costs")
 current_spend = st.sidebar.number_input("Current Ad Spend ($)", min_value=0, value=5000, step=100, key="current_spend")
 base_demand = st.sidebar.number_input("Base Demand (units)", min_value=0, value=100, step=1, key="base_demand")
 model_type = st.sidebar.radio("Demand Model", ["sqrt", "log", "Hill (Robyn)"], horizontal=True, key="model_type")
@@ -512,7 +511,7 @@ def revenue(ad_spend):
 
 def total_cost(ad_spend):
     a = np.asarray(ad_spend, dtype=float)
-    return fixed_costs + cost * units_sold(a) + a
+    return cost * units_sold(a) + a
 
 
 def profit(ad_spend):
@@ -1289,7 +1288,7 @@ with st.expander("Model Formulas & Derivation"):
 
 **Variables:**
 - $B$ = base demand, $E$ = ad effectiveness, $A$ = ad spend
-- $P$ = price/unit, $C$ = cost/unit, $F$ = fixed costs, $M = P - C$ (margin)
+- $P$ = price/unit, $C$ = cost/unit, $M = P - C$ (margin)
 
 **Units Sold:**
 
