@@ -1313,34 +1313,6 @@ if upload_df is not None:
                         )
                         st.plotly_chart(fig_up, use_container_width=True)
 
-                        # Marginal returns using best-fit model
-                        sort_idx = np.argsort(up_spend)
-                        up_s_sorted = up_spend[sort_idx]
-                        up_r_sorted = up_response[sort_idx]
-                        pcts = [0, 25, 50, 75, 100]
-                        pct_vals = np.percentile(up_s_sorted, pcts)
-                        st.caption(f"**Marginal {response_col} at spend percentiles ({up_best} model):**")
-                        mr_rows = []
-                        for i in range(len(pct_vals) - 1):
-                            s0, s1 = float(pct_vals[i]), float(pct_vals[i + 1])
-                            if up_best == "sqrt":
-                                r0 = _up_sqrt(s0, usq_b, usq_e)
-                                r1 = _up_sqrt(s1, usq_b, usq_e)
-                            elif up_best == "log":
-                                r0 = _up_log(s0, ulg_b, ulg_e)
-                                r1 = _up_log(s1, ulg_b, ulg_e)
-                            else:
-                                r0 = _up_hill(np.array([s0]), uh_b, uh_e, uh_a, uh_g)[0]
-                                r1 = _up_hill(np.array([s1]), uh_b, uh_e, uh_a, uh_g)[0]
-                            delta_s = s1 - s0
-                            delta_r = r1 - r0
-                            mr = delta_r / (delta_s / 1000) if delta_s > 0 else 0
-                            mr_rows.append({
-                                "Spend Range": f"${s0:,.0f} -> ${s1:,.0f}",
-                                f"{response_col} Change": f"{delta_r:,.0f}",
-                                "Per $1K Spent": f"{mr:,.0f}",
-                            })
-                        st.table(mr_rows)
 
                     except Exception as e:
                         st.error(f"Could not fit curves to uploaded data: {e}")
