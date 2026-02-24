@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.saved_params.json
+channels/
+.claude/
+*.xlsx
+*.csv
