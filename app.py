@@ -64,6 +64,7 @@ _PARAM_KEYS = [
     "price", "cost", "current_spend", "base_demand", "model_type",
     "hill_source", "hill_alpha", "hill_gamma", "hill_max_spend", "hill_effectiveness",
     "use_calculator", "calc_spend", "calc_extra_sales", "effectiveness",
+    "min_marginal_roas",
 ]
 
 
@@ -344,6 +345,9 @@ current_spend = st.sidebar.number_input("Current Ad Spend ($)", min_value=0, val
 with st.sidebar.expander("Base Demand (advanced)"):
     st.caption("Units you'd sell with zero ad spend. Shifts the profit curve up/down but **does not change optimal ad spend**.")
     base_demand = st.number_input("Base Demand (units)", min_value=0, value=100, step=1, key="base_demand")
+with st.sidebar.expander("DR Threshold (advanced)"):
+    st.caption("Minimum marginal ROAS to consider spend 'efficient'. Default $1.00 means each $1 spent must return at least $1 in revenue. Set higher to be more conservative.")
+    min_marginal_roas = st.number_input("Min marginal ROAS ($)", min_value=0.5, max_value=10.0, value=1.0, step=0.25, key="min_marginal_roas")
 model_type = st.sidebar.radio("Demand Model", ["sqrt", "log", "Hill (Robyn)"], horizontal=True, key="model_type")
 
 # --- Hill Parameters (only shown when Hill model selected) ---
@@ -641,20 +645,20 @@ max_profit = float(profit(optimal_spend))
 current_profit = float(profit(current_spend))
 contribution_margin = margin
 
-# --- Diminishing returns threshold: where marginal REVENUE per $1 of ad spend drops below $1 ---
-# i.e., the spend level where spending $1 more generates less than $1 extra revenue (marginal ROAS = 1)
+# --- Diminishing returns threshold: where marginal REVENUE per $1 of ad spend drops below min_marginal_roas ---
 # Uses E_rev = effectiveness * price, so it works correctly regardless of sidebar cost/margin settings
 _E_rev = effectiveness * price  # revenue-equivalent effectiveness
+_mr = min_marginal_roas  # minimum marginal ROAS (default $1)
 diminishing_threshold = None
 if _E_rev > 0:
     if model_type == "sqrt":
-        # marginal revenue = E_rev / (2*sqrt(a)); set = 1 → a = (E_rev/2)^2
-        _dr_val = (_E_rev / 2.0) ** 2
+        # marginal revenue = E_rev / (2*sqrt(a)); set = _mr → a = (E_rev/(2*_mr))^2
+        _dr_val = (_E_rev / (2.0 * _mr)) ** 2
         if _dr_val >= 0.01:
             diminishing_threshold = float(_dr_val)
     elif model_type == "log":
-        # marginal revenue = E_rev / (1+a); set = 1 → a = E_rev - 1
-        _dr_val = _E_rev - 1.0
+        # marginal revenue = E_rev / (1+a); set = _mr → a = E_rev/_mr - 1
+        _dr_val = _E_rev / _mr - 1.0
         if _dr_val >= 0.01:
             diminishing_threshold = float(_dr_val)
     else:  # Hill — numerical with log-spaced grid for precision at low spend
@@ -664,13 +668,12 @@ if _E_rev > 0:
         _dr_revenues = revenue(_dr_range)
         _dr_marginal = np.diff(_dr_revenues) / np.diff(_dr_range)
         # For S-curves (alpha>1), marginal revenue goes low→high→low.
-        # Find the LAST transition from ≥$1 to <$1 (not the first, which is just the S-curve start).
-        _above_1 = _dr_marginal >= 1.0
-        _transitions = np.where(np.diff(_above_1.astype(int)) == -1)[0]  # ≥1 → <1
+        # Find the LAST transition from ≥threshold to <threshold.
+        _above = _dr_marginal >= _mr
+        _transitions = np.where(np.diff(_above.astype(int)) == -1)[0]
         if len(_transitions) > 0:
             diminishing_threshold = float(_dr_range[_transitions[-1] + 1])
-        elif not np.any(_above_1):
-            # Marginal revenue is always below $1 — ads never pay for themselves at any level
+        elif not np.any(_above):
             diminishing_threshold = None
 
 # --- Hill 50% saturation point ---
@@ -780,10 +783,11 @@ rc4.metric("E as ROAS", f"{_roas_current:.2f}:1" if current_spend > 0 else "N/A"
 
 # --- Key Metrics Row 3 ---
 col9, col10, col11, col12 = st.columns(4)
+_dr_help = f"Spend level where each extra $1 of ad spend generates less than ${_mr:.2f} of additional revenue (marginal ROAS < {_mr:.2f})"
 col9.metric(
     "Diminishing Returns Threshold",
     f"${diminishing_threshold:,.0f}" if diminishing_threshold is not None else "N/A",
-    help="Spend level where each extra $1 of ad spend generates less than $1 of additional revenue (marginal ROAS = 1)",
+    help=_dr_help,
 )
 if model_type == "Hill (Robyn)" and hill_half_sat_spend is not None:
     col10.metric(
@@ -802,7 +806,7 @@ _headroom = optimal_spend - (diminishing_threshold or 0)
 col12.metric(
     "Efficient Headroom",
     f"${_headroom:,.0f}" if diminishing_threshold is not None else "N/A",
-    help="The spend range between the DR threshold (where each $1 returns less than $1 in revenue) and optimal spend (where profit is maximized). Spending in this zone still adds profit, just at a declining rate.",
+    help=f"The spend range between the DR threshold (where marginal ROAS drops below ${_mr:.2f}) and optimal spend (where profit is maximized). Spending in this zone still adds profit, just at a declining rate.",
 )
 
 # --- Ad Effectiveness (E) Explainer ---
@@ -933,7 +937,7 @@ fig1.update_layout(
 _caption_parts = []
 if diminishing_threshold is not None:
     _caption_parts.append(
-        f"**DR threshold** (${diminishing_threshold:,.0f}): each extra $1 of ad spend generates less than $1 of additional revenue beyond this point (marginal ROAS < 1)."
+        f"**DR threshold** (${diminishing_threshold:,.0f}): each extra $1 of ad spend generates less than ${_mr:.2f} of additional revenue beyond this point (marginal ROAS < {_mr:.2f})."
     )
 if model_type == "Hill (Robyn)" and hill_half_sat_spend is not None:
     hill_at_opt = hill_saturation(
