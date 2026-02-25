@@ -3,5 +3,7 @@ __pycache__/
 .saved_params.json
 channels/
 .claude/
+.streamlit/
+.env
 *.xlsx
 *.csv

@@ -7,6 +7,7 @@ import pandas as pd
 import os
 import json
 import hashlib
+import hmac
 
 st.set_page_config(page_title="Advertising Cost-Benefit Analyzer", layout="wide")
 
@@ -20,7 +21,7 @@ def _make_auth_token(password: str) -> str:
 def _set_auth_cookie(token: str):
     components.html(
         f"""<script>
-        document.cookie = "{_AUTH_COOKIE_NAME}={token}; path=/; max-age={_AUTH_COOKIE_DAYS * 86400}; SameSite=Strict";
+        document.cookie = "{_AUTH_COOKIE_NAME}={token}; path=/; max-age={_AUTH_COOKIE_DAYS * 86400}; SameSite=Strict; Secure";
         </script>""",
         height=0,
     )
@@ -37,14 +38,14 @@ def _check_password():
 
     # Check for auth cookie
     cookies = getattr(st.context, "cookies", {})
-    if cookies.get(_AUTH_COOKIE_NAME) == expected_token:
+    if hmac.compare_digest(cookies.get(_AUTH_COOKIE_NAME, ""), expected_token):
         st.session_state["_authenticated"] = True
         return True
 
     st.title("Advertising Cost-Benefit Analyzer")
     pwd = st.text_input("Enter password to access the app", type="password", key="_login_pwd")
     if pwd:
-        if pwd == st.secrets["password"]:
+        if hmac.compare_digest(pwd, st.secrets["password"]):
             st.session_state["_authenticated"] = True
             _set_auth_cookie(expected_token)
             st.rerun()
